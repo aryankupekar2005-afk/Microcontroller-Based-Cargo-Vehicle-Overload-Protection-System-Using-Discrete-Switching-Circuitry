@@ -1,0 +1,2 @@
+# Microcontroller-Based-Cargo-Vehicle-Overload-Protection-System-Using-Discrete-Switching-Circuitry
+  This system is an embedded solution designed for real-time cargo weight measurement, display, and overload protection using an STM32  &amp;  HX711 with load cells. It features an OLED display for immediate readings, integrated Wi-Fi telemetry via ESP01 for web-based fleet monitoring,&amp; automated relay-based protection to prevent vehicle overload. 
