@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Smart Cargo Vehicle Monitoring and Overload Protection System using STM32, HX711, ESP-01, and Python Flask.">
+    <title>Smart Cargo | Vehicle Monitoring & Overload Protection System</title>
+
+    <!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Chart.js via CDN for interactive telemetry graphics (with graceful offline fallback) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <!-- Custom Stylesheet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    
+    <!-- Live Dashboard Script -->
+    <script defer src="{{ url_for('static', filename='live.js') }}"></script>
+</head>
+<body>
+
+    <!-- ==================================================================== -->
+    <!-- TOP NAVIGATION & STATUS BAR                                          -->
+    <!-- ==================================================================== -->
+    <header class="navbar">
+        <div class="nav-container">
+            <div class="brand">
+                <div class="brand-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="1" y="3" width="15" height="13"></rect>
+                        <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+                        <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                        <circle cx="18.5" cy="18.5" r="2.5"></circle>
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <div class="brand-title">SMART CARGO <span class="brand-chip">STM32F103</span></div>
+                    <div class="brand-subtitle">Vehicle Telemetry & Overload Protection System</div>
+                </div>
+            </div>
+
+            <div class="nav-actions">
+                <!-- Clock -->
+                <div class="nav-clock" id="nav-clock">--:--:--</div>
+
+                <!-- Sound Alert Toggle -->
+                <button class="nav-btn" id="btn-sound-toggle" title="Toggle Audio Overload Alarm">
+                    <span id="sound-icon">🔔</span>
+                    <span id="sound-text">ALARM ON</span>
+                </button>
+
+                <!-- Interactive Demo Simulation Toggle -->
+                <button class="nav-btn nav-btn-demo" id="btn-demo-toggle" title="Toggle Simulation Mode for UI Testing">
+                    <span>⚡</span>
+                    <span id="demo-text">TEST SIMULATOR</span>
+                </button>
+
+                <!-- Hardware Connection Status Pill -->
+                <div class="connection-pill offline" id="connection-pill">
+                    <span class="status-dot"></span>
+                    <span id="connection-text">STM32 OFFLINE</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ==================================================================== -->
+    <!-- OVERLOAD CRITICAL HAZARD BANNER                                      -->
+    <!-- ==================================================================== -->
+    <aside class="hazard-banner hidden" id="hazard-banner">
+        <div class="hazard-content">
+            <div class="hazard-icon">⚠️</div>
+            <div class="hazard-text">
+                <strong>CRITICAL OVERLOAD DETECTED!</strong>
+                <span>Weight exceeds safe threshold of 60.000 kg. STM32 PB0 relay output tripped &mdash; Vehicle ignition cutoff active.</span>
+            </div>
+            <div class="hazard-metric" id="hazard-excess">+0.000 KG EXCEEDED</div>
+        </div>
+    </aside>
+
+    <!-- ==================================================================== -->
+    <!-- MAIN DASHBOARD CONTENT                                               -->
+    <!-- ==================================================================== -->
+    <main class="dashboard-wrap">
+
+        <!-- ================= HERO VEHICLE TWIN & DIAL GAUGE ================= -->
+        <section class="hero-grid">
+
+            <!-- Truck Digital Twin & Visual Load Card -->
+            <div class="glass-card truck-card">
+                <div class="card-header">
+                    <span class="card-tag">DIGITAL TWIN</span>
+                    <span class="card-meta" id="truck-payload-percent">0.0% CAPACITY</span>
+                </div>
+                <h3 class="card-title">Cargo Bed Load Distribution</h3>
+
+                <!-- Stylized SVG Truck with Dynamic Payload Fill -->
+                <div class="truck-graphic-container">
+                    <svg class="truck-svg" viewBox="0 0 600 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <!-- Road Surface -->
+                        <line x1="10" y1="215" x2="590" y2="215" stroke="rgba(255,255,255,0.15)" stroke-width="2" stroke-dasharray="10 8"/>
+                        
+                        <!-- Cargo Bed Container Background -->
+                        <rect x="50" y="45" width="310" height="135" rx="8" fill="#131e33" stroke="#2a3f63" stroke-width="3"/>
+                        
+                        <!-- Dynamic Cargo Fluid/Payload Level (controlled via live.js) -->
+                        <g clip-path="url(#cargo-clip)">
+                            <rect id="truck-cargo-level" x="50" y="180" width="310" height="0" fill="url(#cargo-gradient)" />
+                            <!-- Warning Stripes Overlay when Overloaded -->
+                            <rect id="truck-hazard-stripes" class="hazard-stripes-overlay hidden" x="50" y="45" width="310" height="135" fill="url(#hazard-pattern)" opacity="0.25"/>
+                        </g>
+                        <clipPath id="cargo-clip">
+                            <rect x="52" y="47" width="306" height="131" rx="6"/>
+                        </clipPath>
+
+                        <!-- Truck Cab & Driver Compartment -->
+                        <path d="M 360 85 L 430 85 L 475 130 L 495 135 L 495 180 L 360 180 Z" fill="#172744" stroke="#3b5682" stroke-width="3"/>
+                        <!-- Windshield Glass -->
+                        <path d="M 425 93 L 467 132 L 395 132 L 395 93 Z" fill="#43e0c2" opacity="0.35"/>
+                        <!-- Cab Door Line -->
+                        <line x1="395" y1="93" x2="395" y2="180" stroke="#2a3f63" stroke-width="2"/>
+                        
+                        <!-- Headlight Beam -->
+                        <polygon points="495,145 570,130 570,175 495,160" fill="url(#headlight-glow)" opacity="0.6"/>
+
+                        <!-- Truck Chassis Frame -->
+                        <rect x="40" y="178" width="460" height="10" rx="3" fill="#24334d"/>
+
+                        <!-- Suspension & Axle Mounts -->
+                        <rect x="90" y="185" width="50" height="12" fill="#1b2538"/>
+                        <rect x="230" y="185" width="50" height="12" fill="#1b2538"/>
+                        <rect x="420" y="185" width="50" height="12" fill="#1b2538"/>
+
+                        <!-- Wheels (Dual Rear + Front Steering) -->
+                        <!-- Rear Wheel 1 -->
+                        <g class="truck-wheel">
+                            <circle cx="115" cy="198" r="24" fill="#0d1422" stroke="#48658f" stroke-width="4"/>
+                            <circle cx="115" cy="198" r="13" fill="#1b2538" stroke="#384c6e" stroke-width="2"/>
+                            <circle cx="115" cy="198" r="5" fill="#43e0c2"/>
+                        </g>
+                        <!-- Rear Wheel 2 -->
+                        <g class="truck-wheel">
+                            <circle cx="255" cy="198" r="24" fill="#0d1422" stroke="#48658f" stroke-width="4"/>
+                            <circle cx="255" cy="198" r="13" fill="#1b2538" stroke="#384c6e" stroke-width="2"/>
+                            <circle cx="255" cy="198" r="5" fill="#43e0c2"/>
+                        </g>
+                        <!-- Front Wheel -->
+                        <g class="truck-wheel">
+                            <circle cx="445" cy="198" r="24" fill="#0d1422" stroke="#48658f" stroke-width="4"/>
+                            <circle cx="445" cy="198" r="13" fill="#1b2538" stroke="#384c6e" stroke-width="2"/>
+                            <circle cx="445" cy="198" r="5" fill="#43e0c2"/>
+                        </g>
+
+                        <!-- Load Cell Placement Indicator Badges -->
+                        <g transform="translate(75, 172)">
+                            <circle cx="0" cy="0" r="5" fill="#4facfe"/>
+                            <text x="8" y="3" fill="#8dbbf5" font-family="'JetBrains Mono', monospace" font-size="9">LC-1</text>
+                        </g>
+                        <g transform="translate(190, 172)">
+                            <circle cx="0" cy="0" r="5" fill="#4facfe"/>
+                            <text x="8" y="3" fill="#8dbbf5" font-family="'JetBrains Mono', monospace" font-size="9">LC-2</text>
+                        </g>
+                        <g transform="translate(305, 172)">
+                            <circle cx="0" cy="0" r="5" fill="#4facfe"/>
+                            <text x="8" y="3" fill="#8dbbf5" font-family="'JetBrains Mono', monospace" font-size="9">LC-3/4</text>
+                        </g>
+
+                        <!-- Gradients and Patterns -->
+                        <defs>
+                            <linearGradient id="cargo-gradient" x1="0" y1="1" x2="0" y2="0">
+                                <stop offset="0%" stop-color="#00F2FE" stop-opacity="0.9"/>
+                                <stop offset="100%" stop-color="#4FACFE" stop-opacity="0.95"/>
+                            </linearGradient>
+                            <linearGradient id="headlight-glow" x1="0" y1="0" x2="1" y2="0">
+                                <stop offset="0%" stop-color="#43e0c2" stop-opacity="0.8"/>
+                                <stop offset="100%" stop-color="#43e0c2" stop-opacity="0"/>
+                            </linearGradient>
+                            <pattern id="hazard-pattern" width="20" height="20" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+                                <line x1="0" y1="0" x2="0" y2="20" stroke="#ff3b30" stroke-width="10"/>
+                            </pattern>
+                        </defs>
+                    </svg>
+                </div>
+
+                <!-- Capacity Progress Bar -->
+                <div class="capacity-bar-wrap">
+                    <div class="capacity-labels">
+                        <span>0.000 kg (Tare)</span>
+                        <span class="threshold-label">Threshold: 60.0 kg</span>
+                        <span>80.0 kg</span>
+                    </div>
+                    <div class="capacity-track">
+                        <div class="capacity-fill" id="capacity-fill"></div>
+                        <div class="threshold-marker" title="60.0 kg Overload Threshold"></div>
+                    </div>
+                </div>
+
+                <div class="truck-meta-row">
+                    <div class="meta-item">
+                        <span class="meta-title">Available Margin</span>
+                        <span class="meta-value" id="capacity-margin">60.000 kg</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-title">Safety Status</span>
+                        <span class="meta-value badge-pill badge-safe" id="truck-status-badge">SAFE (WITHIN LIMIT)</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-title">Tare State</span>
+                        <span class="meta-value" id="truck-tare-state">AUTO-TARED</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Radial Gauge & Big Digital Readout Card -->
+            <div class="glass-card gauge-card">
+                <div class="card-header">
+                    <span class="card-tag">LIVE TELEMETRY</span>
+                    <span class="card-meta" id="telemetry-timestamp">AWAITING STM32</span>
+                </div>
+                <h3 class="card-title">Calibrated Gross Weight</h3>
+
+                <!-- Circular Radial Speedometer SVG -->
+                <div class="radial-gauge-container">
+                    <svg class="radial-gauge-svg" viewBox="0 0 280 200">
+                        <!-- Gauge Background Arc -->
+                        <path class="gauge-bg" d="M 40 180 A 100 100 0 1 1 240 180" fill="none" stroke="#18253d" stroke-width="16" stroke-linecap="round"/>
+                        <!-- Gauge Safe Zone Arc (0-60kg) -->
+                        <path class="gauge-safe" d="M 40 180 A 100 100 0 0 1 210 90" fill="none" stroke="rgba(67, 224, 194, 0.25)" stroke-width="16" stroke-linecap="round"/>
+                        <!-- Gauge Hazard Arc (60-80kg) -->
+                        <path class="gauge-danger" d="M 210 90 A 100 100 0 0 1 240 180" fill="none" stroke="rgba(255, 59, 48, 0.35)" stroke-width="16" stroke-linecap="round"/>
+                        <!-- Active Animated Arc -->
+                        <path id="gauge-active-arc" class="gauge-active" d="M 40 180 A 100 100 0 1 1 240 180" fill="none" stroke="url(#arc-gradient)" stroke-width="16" stroke-linecap="round" stroke-dasharray="471" stroke-dashoffset="471"/>
+                        
+                        <defs>
+                            <linearGradient id="arc-gradient" x1="0" y1="0" x2="1" y2="0">
+                                <stop offset="0%" stop-color="#00F2FE"/>
+                                <stop offset="70%" stop-color="#4FACFE"/>
+                                <stop offset="100%" stop-color="#10B981"/>
+                            </linearGradient>
+                        </defs>
+
+                        <!-- Ticks & Text -->
+                        <text x="35" y="195" fill="#7188a6" font-family="'JetBrains Mono', monospace" font-size="11">0</text>
+                        <text x="132" y="55" fill="#7188a6" font-family="'JetBrains Mono', monospace" font-size="11">40</text>
+                        <text x="200" y="80" fill="#ff647c" font-family="'JetBrains Mono', monospace" font-size="11" font-weight="bold">60</text>
+                        <text x="240" y="195" fill="#7188a6" font-family="'JetBrains Mono', monospace" font-size="11">80</text>
+                    </svg>
+
+                    <!-- Big Digital Numeric Overlay -->
+                    <div class="gauge-digital-readout">
+                        <div class="digital-value" id="weight-display">0.000</div>
+                        <div class="digital-unit">KILOGRAMS (KG)</div>
+                    </div>
+                </div>
+
+                <!-- Sensor Calibration Footnote -->
+                <div class="gauge-footer-stats">
+                    <div class="stat-bubble">
+                        <span class="bubble-label">ADC CONVERTER</span>
+                        <span class="bubble-val">HX711 24-BIT</span>
+                    </div>
+                    <div class="stat-bubble">
+                        <span class="bubble-label">CALIBRATION FACTOR</span>
+                        <span class="bubble-val">21474.61</span>
+                    </div>
+                    <div class="stat-bubble">
+                        <span class="bubble-label">UPDATE RATE</span>
+                        <span class="bubble-val">~3.0 SECONDS</span>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- ================= 4 PRIMARY TELEMETRY CARDS ================= -->
+        <section class="metrics-grid">
+
+            <!-- Card 1: Gross Weight Metric -->
+            <article class="glass-card metric-card">
+                <div class="metric-header">
+                    <span class="metric-label">GROSS CARGO WEIGHT</span>
+                    <span class="metric-icon">⚖️</span>
+                </div>
+                <div class="metric-body">
+                    <div class="metric-number" id="card-weight">--.--- <span class="sub-unit">kg</span></div>
+                    <div class="metric-sub" id="card-weight-sub">Awaiting STM32 load cell readings</div>
+                </div>
+                <div class="metric-footer">
+                    <span>Session Peak: <strong id="peak-weight-val">0.000 kg</strong></span>
+                </div>
+            </article>
+
+            <!-- Card 2: Overload Condition Guard -->
+            <article class="glass-card metric-card" id="card-overload-container">
+                <div class="metric-header">
+                    <span class="metric-label">OVERLOAD PROTECTION</span>
+                    <span class="metric-icon">🛡️</span>
+                </div>
+                <div class="metric-body">
+                    <div class="metric-status status-safe" id="overload-status-text">NORMAL</div>
+                    <div class="metric-sub" id="overload-desc">Cargo weight is safely under the 60.0 kg threshold.</div>
+                </div>
+                <div class="metric-footer">
+                    <span>Threshold Limit: <strong>60.000 kg</strong></span>
+                </div>
+            </article>
+
+            <!-- Card 3: PB0 Actuator & Relay State -->
+            <article class="glass-card metric-card" id="card-relay-container">
+                <div class="metric-header">
+                    <span class="metric-label">PB0 IGNITION CUTOFF RELAY</span>
+                    <span class="metric-icon">⚡</span>
+                </div>
+                <div class="metric-body">
+                    <div class="metric-status status-safe" id="relay-status-text">OFF &bull; RUN</div>
+                    <div class="metric-sub" id="relay-desc">GPIO PB0 is LOW. Vehicle ignition demo circuit is enabled.</div>
+                </div>
+                <div class="metric-footer">
+                    <span>Active Logic: <strong>HIGH triggers cutoff</strong></span>
+                </div>
+            </article>
+
+            <!-- Card 4: ESP-01 / Wi-Fi Link Health -->
+            <article class="glass-card metric-card">
+                <div class="metric-header">
+                    <span class="metric-label">ESP-01 DATA LINK</span>
+                    <span class="metric-icon">📡</span>
+                </div>
+                <div class="metric-body">
+                    <div class="metric-number-small" id="link-latency">READY</div>
+                    <div class="metric-sub" id="link-packets">Total Packets Received: 0</div>
+                </div>
+                <div class="metric-footer">
+                    <span>Protocol: <strong>USART2 @ 115200 &bull; HTTP/1.1</strong></span>
+                </div>
+            </article>
+
+        </section>
+
+        <!-- ================= LIVE WEIGHT GRAPH ================= -->
+        <section class="glass-card chart-section">
+            <div class="chart-header">
+                <div>
+                    <span class="card-tag">CONTINUOUS TELEMETRY GRAPH</span>
+                    <h3 class="card-title">Live Weight versus Time Profile</h3>
+                </div>
+                <div class="chart-controls">
+                    <button class="filter-btn active" data-samples="30">Last 30 Pts</button>
+                    <button class="filter-btn" data-samples="60">Last 60 Pts</button>
+                    <button class="filter-btn" data-samples="all">All Records</button>
+                    <button class="action-btn" id="btn-export-csv" title="Download Telemetry Log in CSV format">
+                        <span>📥</span> Export CSV
+                    </button>
+                </div>
+            </div>
+
+            <!-- Chart Canvas Container -->
+            <div class="chart-container">
+                <canvas id="telemetryChart"></canvas>
+            </div>
+
+            <div class="chart-legend-row">
+                <div class="legend-item"><span class="legend-color legend-weight"></span> Measured Load Cell Weight (kg)</div>
+                <div class="legend-item"><span class="legend-color legend-limit"></span> 60.0 kg Overload Threshold</div>
+                <div class="legend-item"><span class="legend-color legend-relay"></span> Ignition Cutoff Trigger Event</div>
+            </div>
+        </section>
+
+        <!-- ================= RECENT ACTIVITY LOG & SYSTEM INFO ================= -->
+        <section class="info-grid">
+
+            <!-- Real-time Activity Table -->
+            <div class="glass-card table-card">
+                <div class="card-header">
+                    <span class="card-tag">TELEMETRY LOG</span>
+                    <span class="card-meta" id="table-record-count">0 measurements</span>
+                </div>
+                <h3 class="card-title">Recent Measurement Records</h3>
+
+                <div class="table-wrap">
+                    <table class="telemetry-table">
+                        <thead>
+                            <tr>
+                                <th>TIME</th>
+                                <th>MEASURED WEIGHT</th>
+                                <th>CAPACITY %</th>
+                                <th>OVERLOAD</th>
+                                <th>RELAY PB0</th>
+                                <th>LINK STATUS</th>
+                            </tr>
+                        </thead>
+                        <tbody id="telemetry-tbody">
+                            <tr>
+                                <td colspan="6" class="table-placeholder">
+                                    <div class="placeholder-box">
+                                        <div class="pulse-ring"></div>
+                                        <span>Listening for incoming STM32 HTTP POST requests on port 5000...</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Hardware Pinout & Architecture Card -->
+            <div class="glass-card hardware-card">
+                <div class="card-header">
+                    <span class="card-tag">HARDWARE SPECIFICATIONS</span>
+                    <span class="card-meta">STM32F103 &bull; BLUE PILL</span>
+                </div>
+                <h3 class="card-title">Circuit Architecture & Pinouts</h3>
+
+                <div class="pinout-list">
+                    <div class="pinout-row">
+                        <div class="pin-badge pin-gpio">PA0</div>
+                        <div class="pin-desc"><strong>HX711 DOUT / DT</strong> &mdash; 24-bit ADC Serial Data input</div>
+                    </div>
+                    <div class="pinout-row">
+                        <div class="pin-badge pin-gpio">PA1</div>
+                        <div class="pin-desc"><strong>HX711 PD_SCK</strong> &mdash; 24-bit ADC Clock pulse output</div>
+                    </div>
+                    <div class="pinout-row">
+                        <div class="pin-badge pin-i2c">PB6 / PB7</div>
+                        <div class="pin-desc"><strong>I2C1 SCL / SDA</strong> &mdash; SSD1306 128&times;64 OLED Display (0x3C)</div>
+                    </div>
+                    <div class="pinout-row">
+                        <div class="pin-badge pin-actuator">PB0</div>
+                        <div class="pin-desc"><strong>Relay Command</strong> &mdash; Active HIGH demonstration ignition cutoff</div>
+                    </div>
+                    <div class="pinout-row">
+                        <div class="pin-badge pin-uart">PA2 / PA3</div>
+                        <div class="pin-desc"><strong>USART2 TX / RX</strong> &mdash; ESP-01 Wi-Fi bridge (115200 Baud, DMA1 Ch6)</div>
+                    </div>
+                    <div class="pinout-row">
+                        <div class="pin-badge pin-led">PC13</div>
+                        <div class="pin-desc"><strong>Status LED</strong> &mdash; Active-LOW heartbeat & connection indicator</div>
+                    </div>
+                </div>
+
+                <div class="system-summary-box">
+                    <div class="summary-line"><span>Hotspot SSID:</span> <strong>Soham</strong></div>
+                    <div class="summary-line"><span>Laptop Server IP:</span> <strong>10.70.64.79:5000</strong></div>
+                    <div class="summary-line"><span>ADC Calibration:</span> <strong>21474.61f</strong></div>
+                    <div class="summary-line"><span>Overload Threshold:</span> <strong>60.000 kg</strong></div>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- ==================================================================== -->
+    <!-- FOOTER                                                               -->
+    <!-- ==================================================================== -->
+    <footer class="footer">
+        <div class="footer-container">
+            <div><strong>SMART CARGO VEHICLE MONITORING AND OVERLOAD PROTECTION SYSTEM</strong></div>
+            <div class="footer-sub">STM32F103 Microcontroller &bull; HX711 Load Cell Array &bull; ESP-01 Wi-Fi &bull; Python Flask Dashboard</div>
+        </div>
+    </footer>
+
+</body>
+</html>
